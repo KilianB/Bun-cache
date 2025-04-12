@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package kilianb.cacheData;
+
+enum DataType{
+    NULL = 0;
+    PRIMITIVE = 1;
+    JSON = 2;
+}
+
+//Or immediately as string?
+message CacheData{
+    DataType dataType = 1; 
+    data bytes = 2;
+};
+
+message 
+
+
+
+
+enum DataType{
+    NULL = 0;
+    STRING = 1;
+    INT = 2;
+    FLOAT = 3;
+    BOOLEAN = 5;
+    JSON = 6;
+}

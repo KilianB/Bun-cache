@@ -1,0 +1,16 @@
+{
+  "name": "cache",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@biomejs/biome": "1.9.4",
+    "mitata": "1.0.34"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ensure-config": "^1.0.2"
+  }
+}
