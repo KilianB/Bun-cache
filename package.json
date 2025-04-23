@@ -1,5 +1,5 @@
 {
-  "name": "cache",
+  "name": "bun-cache",
   "module": "index.ts",
   "type": "module",
   "devDependencies": {

@@ -1,57 +1,86 @@
-import { run, bench, boxplot, summary } from "mitata";
+import { bench, run, summary } from "mitata";
 import { CacheClient } from "..";
 
-const cache = await CacheClient.init();
+const cache = await CacheClient.create();
 
-bench("getValueFromCacheNull", () =>
-  cache.getValueOrRetrieve(
-    "benchNull",
-    async () => {
-      return null;
-    },
-    {
-      duration: 100,
-    }
-  )
-);
+cache.onclose((err) => {
+  console.log("Cache client closed", err);
+});
 
-bench("getValueFromCacheString", () =>
-  cache.getValueOrRetrieve(
-    "benchString",
-    async () => {
-      return "Hello World";
-    },
-    {
-      duration: 100,
-    }
-  )
-);
+summary(() => {
+  bench(
+    "getValueOrRetrieve($mode)",
+    function* (state: { get(param: string): string }) {
+      const n = state.get("mode");
 
-bench("getValueFromCacheBoolean", () =>
-  cache.getValueOrRetrieve(
-    "benchBoolean",
-    async () => {
-      return false;
-    },
-    {
-      duration: 100,
-    }
-  )
-);
+      let i = 10_000;
+      // if (n === "not awaited") {
+      //   yield async () => {
+      //     i++;
+      //     await cache.getValueOrRetrieveFast(n + i.toString(), async () => {
+      //       return "Fooo";
+      //     });
+      //   };
+      // }
+      if (n === "awaited") {
+        yield async () => {
+          i++;
+          await cache.getValueOrRetrieve(n + i.toString(), async () => {
+            return "Fooo";
+          });
+        };
+      }
 
-bench("getValueFromCacheObject", () =>
-  cache.getValueOrRetrieve(
-    "benchObject",
-    async () => {
-      return {
-        foo: "bar",
-      };
-    },
-    {
-      duration: 100,
+      // }
     }
-  )
-);
+  ).args("mode", ["awaited", "not awaited"]);
+});
+
+// bench('getValueFromCache_$mode',function* (state){
+
+//   const mode =  state.get('mode');
+
+// yiel
+
+// }).args(mode: ['base', 'hardCodedExpiration'])
+
+// bench("getValueFromCacheString", () =>
+//   cache.getValueOrRetrieve(
+//     "benchString",
+//     async () => {
+//       return "Hello World";
+//     },
+//     {
+//       duration: 100,
+//     }
+//   )
+// );
+
+// bench("getValueFromCacheBoolean", () =>
+//   cache.getValueOrRetrieve(
+//     "benchBoolean",
+//     async () => {
+//       return false;
+//     },
+//     {
+//       duration: 100,
+//     }
+//   )
+// );
+
+// bench("getValueFromCacheObject", () =>
+//   cache.getValueOrRetrieve(
+//     "benchObject",
+//     async () => {
+//       return {
+//         foo: "bar",
+//       };
+//     },
+//     {
+//       duration: 100,
+//     }
+//   )
+// );
 
 // boxplot(() => {
 //   summary(() => {

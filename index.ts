@@ -121,9 +121,25 @@ interface SetValueFunction {
   (key: string, value: unknown, ...options: string[]): Promise<"OK" | null>;
 }
 
-type x = Omit<Bun.RedisOptions, "url">;
+export interface BaseCacheClientOptions extends Bun.RedisOptions {
+  getValueOrRetrieveDefaultOptions?: {
+    /**
+     * The global cache duration for values retrieved via the `getValueOrRetrieve` method.
+     * This value can be overwritten per request by passing an option to `getValueOrRetrieve`.
+     * @default minutes
+     */
+    cacheDurationInMs?: number;
+    /**
+     * Identifier prepended to the key saved in redis.
+     *
+     * @default ''
+     */
+    keyPrefix?: string;
+  };
+}
 
-interface WaitForConnectionCacheClientOptions extends Bun.RedisOptions {
+export interface WaitForConnectionCacheClientOptions
+  extends BaseCacheClientOptions {
   /**
    * If not supplied or true wait for until the a successful connection to redis has been established.
    *
@@ -133,7 +149,7 @@ interface WaitForConnectionCacheClientOptions extends Bun.RedisOptions {
   waitForConnection?: true;
 }
 
-interface ConnectionCacheClientOptions extends Bun.RedisOptions {
+export interface ConnectionCacheClientOptions extends BaseCacheClientOptions {
   /**
    * If not supplied or true wait for until the a successful connection to redis has been established.
    *
@@ -151,8 +167,12 @@ interface ConnectionCacheClientOptions extends Bun.RedisOptions {
   onConnection: (err?: Error) => void;
 }
 
-interface CacheOption {
-  duration:
+export interface CacheOption {
+  /**
+   * The cache duration of the key. If not supplied fall backs to 5 Minutes.
+   * This option takes precedence over the default defined in the `CacheClient.create()`
+   */
+  duration?:
     | {
         value: number;
         unit: "MILLISECONDS" | "SECONDS" | "MINUTES" | "HOURS" | "DAYS";
@@ -180,14 +200,18 @@ interface CacheOption {
 //   ): Promise<T>;
 // }
 
-type RetrievalFunction<T> = () => Promise<T | null>;
+export type RetrievalFunction<T> = () => Promise<T | null> | T;
 
 export class CacheClient {
   private client: RedisClient;
   private url: string;
 
-  private constructor(options?: Bun.RedisOptions) {
-    if (options && options.url) {
+  //Get value or retrieve default values
+  private getValueOrRetrieveCacheDurationInMs: number;
+  private getValueOrRetrieveKeyPrefix: string;
+
+  private constructor(options?: BaseCacheClientOptions) {
+    if (options?.url) {
       this.url = options.url;
     } else {
       const url = envOptional("REDIS_URL");
@@ -199,6 +223,20 @@ export class CacheClient {
       this.url = url;
     }
 
+    if (options?.getValueOrRetrieveDefaultOptions?.cacheDurationInMs) {
+      this.getValueOrRetrieveCacheDurationInMs =
+        options.getValueOrRetrieveDefaultOptions.cacheDurationInMs;
+    } else {
+      this.getValueOrRetrieveCacheDurationInMs = 5 * MINUTES;
+    }
+
+    if (options?.getValueOrRetrieveDefaultOptions?.keyPrefix) {
+      this.getValueOrRetrieveKeyPrefix =
+        options.getValueOrRetrieveDefaultOptions.keyPrefix;
+    } else {
+      this.getValueOrRetrieveKeyPrefix = ``;
+    }
+
     if (options) {
       const { url, ...restOptions } = options;
       this.client = new RedisClient(this.url, restOptions);
@@ -207,11 +245,11 @@ export class CacheClient {
     }
   }
 
-  static init(
+  static create(
     options?: WaitForConnectionCacheClientOptions
   ): Promise<CacheClient>;
-  static init(options: ConnectionCacheClientOptions): CacheClient;
-  static init(
+  static create(options: ConnectionCacheClientOptions): CacheClient;
+  static create(
     options?: WaitForConnectionCacheClientOptions | ConnectionCacheClientOptions
   ): Promise<CacheClient> | CacheClient {
     if (
@@ -231,23 +269,28 @@ export class CacheClient {
         });
 
       return instance;
-    } else {
-      const instance = new CacheClient(options);
-      return instance.client.connect().then(() => {
-        return instance;
-      });
     }
+
+    const instance = new CacheClient(options);
+    return instance.client.connect().then(() => {
+      return instance;
+    });
   }
 
   //@ts-expect-error impossible to type return values
-  setValue: SetValueFunction = (key, value, ...option: (string | number)[]) => {
+  setValue: SetValueFunction = (key, value, options?: (string | number)[]) => {
     // lastArg?: number
     if (typeof value !== "string") {
       //@ts-expect-error typings are impossible to implement cleanly
       return this.client.set(key, JSON.stringify(value), ...options);
-    } else {
+    }
+
+    if (options) {
       //@ts-expect-error typings are impossible to implement cleanly
       return this.client.set(key, value as string, ...options);
+      // biome-ignore lint/style/noUselessElse: <explanation>
+    } else {
+      return this.client.set(key, value as string);
     }
   };
 
@@ -259,50 +302,57 @@ export class CacheClient {
       const value = await this.client.get(key);
       if (raw || value === null) {
         return value;
-      } else {
-        //eventually use he/decode for html values.
-        try {
-          return JSON.parse(value) as T;
-        } catch {
-          throw new Error(`Failed to decode value for redis key ${key}`);
-        }
+      }
+      //eventually use he/decode for html values.
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        // throw new Error(`Failed to decode value for redis key ${key}`);
+        return value;
       }
     }
     return null;
   };
 
-  private cacheTimeInMS(duration: CacheOption["duration"]): number {
+  private cacheTimeInMS(duration?: CacheOption["duration"]): number {
+    if (!duration) {
+      return this.getValueOrRetrieveCacheDurationInMs;
+    }
+
     if (typeof duration === "number") {
       return duration;
-    } else {
-      switch (duration.unit) {
-        case "MILLISECONDS":
-          return duration.value;
-        case "SECONDS":
-          return SECONDS * duration.value;
-        case "MINUTES":
-          return MINUTES * duration.value;
-        case "HOURS":
-          return HOURS * duration.value;
-        case "DAYS":
-          return HOURS * duration.value;
-      }
+    }
+    switch (duration.unit) {
+      case "MILLISECONDS":
+        return duration.value;
+      case "SECONDS":
+        return SECONDS * duration.value;
+      case "MINUTES":
+        return MINUTES * duration.value;
+      case "HOURS":
+        return HOURS * duration.value;
+      case "DAYS":
+        return HOURS * duration.value;
     }
   }
 
   async getValueOrRetrieve<T>(
-    key: string,
+    key: string | unknown[],
     retrieve: RetrievalFunction<T>,
-    options: CacheOption
+    options?: CacheOption
   ): Promise<T | null> {
-    const value = await this.client.get(key);
+    let computedKey = this.computeCacheKey(key);
 
-    if (value) {
+    const value = await this.client.get(computedKey);
+    const expirationTime = this.cacheTimeInMS(options?.duration) / SECONDS;
+
+    if (
+      value &&
+      (value !== NULL_SYMBOL || options?.saveNullResponse !== false)
+    ) {
       //Renew expiration time
       if (options?.renewCacheDurationOnAccess) {
-        const expirationTime = this.cacheTimeInMS(options.duration) / SECONDS;
-
-        this.client.expire(key, expirationTime).catch((e) => {
+        await this.client.expire(computedKey, expirationTime).catch((e) => {
           console.warn(`Could not renew cache duration of key ${key} ${e}`);
         });
       }
@@ -313,24 +363,87 @@ export class CacheClient {
 
       //These are all wrapping
       return JSON.parse(value) as T;
-    } else {
-      //Value needs to be retrieved;
-
-      const fetchedValue = await retrieve();
-
-      if (fetchedValue === null && options.saveNullResponse) {
-        this.client.set(key, NULL_SYMBOL);
-        return null;
-      } else {
-        this.client.set(key, JSON.stringify(fetchedValue));
-        return fetchedValue;
-      }
     }
+
+    //Value needs to be retrieved;
+
+    const fetchedValue = await retrieve();
+
+    if (fetchedValue === null) {
+      if (options?.saveNullResponse !== false) {
+        await this.client.set(computedKey, NULL_SYMBOL);
+      }
+      return null;
+    }
+
+    await this.client.set(
+      computedKey,
+      JSON.stringify(fetchedValue),
+      "EX",
+      expirationTime
+    );
+    return fetchedValue;
   }
 
-  //   [Symbol.asyncDispose]: async () => {
-  //     this.client.
-  //   };
+  private computeCacheKey = (input: string | unknown[]): string => {
+    let key = this.getValueOrRetrieveKeyPrefix;
+
+    if (typeof input === "string") {
+      return key + input;
+    }
+    for (const i of input) {
+      key += `_${i}`;
+    }
+    return key;
+  };
+
+  //Not really worth it. We have a ~5% performance improvement for the tradeoff of no guarantee of the 2nd call being cached in at least the same event loop tick.
+  // async getValueOrRetrieveFast<T>(
+  //   key: string,
+  //   retrieve: RetrievalFunction<T>,
+  //   options?: CacheOption
+  // ): Promise<T | null> {
+  //   const value = await this.client.get(key);
+  //   const expirationTime = this.cacheTimeInMS(options?.duration) / SECONDS;
+
+  //   if (
+  //     value &&
+  //     (value !== NULL_SYMBOL || options?.saveNullResponse !== false)
+  //   ) {
+  //     //Renew expiration time
+  //     if (options?.renewCacheDurationOnAccess) {
+  //       this.client.expire(key, expirationTime).catch((e) => {
+  //         console.warn(`Could not renew cache duration of key ${key} ${e}`);
+  //       });
+  //     }
+
+  //     if (value === NULL_SYMBOL) {
+  //       return null;
+  //     }
+
+  //     //These are all wrapping
+  //     return JSON.parse(value) as T;
+  //   }
+
+  //   //Value needs to be retrieved;
+
+  //   const fetchedValue = await retrieve();
+
+  //   if (fetchedValue === null) {
+  //     if (options?.saveNullResponse !== false) {
+  //       this.client.set(key, NULL_SYMBOL);
+  //     }
+  //     return null;
+  //   }
+
+  //   this.client.set(key, JSON.stringify(fetchedValue), "EX", expirationTime);
+  //   return fetchedValue;
+  // }
+
+  [Symbol.dispose] = () => {
+    console.log("Close connection");
+    this.client.close();
+  };
 
   //Do we connect the listeners here?
 
