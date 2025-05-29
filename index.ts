@@ -122,6 +122,7 @@ interface SetValueFunction {
 }
 
 export interface BaseCacheClientOptions extends Bun.RedisOptions {
+  url?: string;
   getValueOrRetrieveDefaultOptions?: {
     /**
      * The global cache duration for values retrieved via the `getValueOrRetrieve` method.
@@ -143,7 +144,7 @@ export interface WaitForConnectionCacheClientOptions
   /**
    * If not supplied or true wait for until the a successful connection to redis has been established.
    *
-   * @example const client = await CacheClient.init();
+   * @example const client = await CacheClient.create();
    *
    */
   waitForConnection?: true;
@@ -153,7 +154,7 @@ export interface ConnectionCacheClientOptions extends BaseCacheClientOptions {
   /**
    * If not supplied or true wait for until the a successful connection to redis has been established.
    *
-   * @example const client = await CacheClient.init({
+   * @example const client = await CacheClient.create({
    *    waitForConnection: false
    *    onConnection(err => {
    *        if(err){
@@ -202,8 +203,26 @@ export interface CacheOption {
 
 export type RetrievalFunction<T> = () => Promise<T | null> | T;
 
+/**
+ * A client for interacting with a Redis-backed cache.
+ *
+ * The `CacheClient` provides methods for setting, retrieving, and managing cached values,
+ * including support for automatic retrieval and caching of values, cache expiration,
+ * key prefixing, transactions, and connection management.
+ *
+ * Use `CacheClient.create()` to instantiate a new client, optionally waiting for a connection.
+ *
+ * Example usage:
+ * ```typescript
+ * const cache = await CacheClient.create({ url: "redis://localhost:6379" });
+ * await cache.setValue("key", { foo: "bar" });
+ * const value = await cache.getValue<{ foo: string }>("key");
+ * ```
+ *
+ * @public
+ */
 export class CacheClient {
-  private client: RedisClient;
+  public client: RedisClient;
   private url: string;
 
   //Get value or retrieve default values
@@ -234,7 +253,7 @@ export class CacheClient {
       this.getValueOrRetrieveKeyPrefix =
         options.getValueOrRetrieveDefaultOptions.keyPrefix;
     } else {
-      this.getValueOrRetrieveKeyPrefix = ``;
+      this.getValueOrRetrieveKeyPrefix = "";
     }
 
     if (options) {
@@ -277,8 +296,19 @@ export class CacheClient {
     });
   }
 
-  //@ts-expect-error impossible to type return values
-  setValue: SetValueFunction = (key, value, options?: (string | number)[]) => {
+  /**
+   * Sets a value serializing non-string values as JSON.
+   *
+   * @param key - The key under which the value will be stored.
+   * @param value - The value to store. If not a string, it will be stringified as JSON.
+   * @param options - Additional options to pass to the client's set method (such as expiration time or flags).
+   * @returns The result of the underlying client's set operation.
+   */
+  setValue: SetValueFunction = (
+    key,
+    value,
+    ...options: (string | number)[]
+  ) => {
     // lastArg?: number
     if (typeof value !== "string") {
       //@ts-expect-error typings are impossible to implement cleanly
@@ -294,6 +324,16 @@ export class CacheClient {
     }
   };
 
+  /**
+   * Retrieves a value from the cache by its key.
+   *
+   * @param {string} key - The key to retrieve the value for.
+   * @param {boolean} [raw] - If true, returns the raw string value saved in redis without parsing. If false or omitted, attempts to parse the value as JSON. Values that could be deserialized as numeric values will be returned as such even if they have been saved as strings.
+   * @returns {Promise<T | string | null>} A promise that resolves to the parsed value, or null if the key does not exist or the client is not connected.
+   *
+   * @remarks
+   * - If the value is not found or the client is not connected, returns null.
+   */
   getValue: GetValueFunction = async <T extends object>(
     key: string,
     raw?: boolean
@@ -341,7 +381,7 @@ export class CacheClient {
     retrieve: RetrievalFunction<T>,
     options?: CacheOption
   ): Promise<T | null> {
-    let computedKey = this.computeCacheKey(key);
+    const computedKey = this.computeCacheKey(key);
 
     const value = await this.client.get(computedKey);
     const expirationTime = this.cacheTimeInMS(options?.duration) / SECONDS;
@@ -397,6 +437,23 @@ export class CacheClient {
     return key;
   };
 
+  async transaction(callback: (tx: CacheClient) => Promise<void>) {
+    const tempClient = await CacheClient.create({
+      url: this.url,
+    });
+
+    //We currently do not have proper pipelining here. Reconnect with a separate client to enforce that we do not halt invocations on other redis calls if we are awaiting in between;
+    tempClient.client.send("MULTI", []);
+
+    try {
+      await callback(tempClient);
+      await tempClient.client.send("EXEC", []);
+    } catch (e) {
+      tempClient.client.send("DISCARD", []);
+      throw e;
+    }
+  }
+
   //Not really worth it. We have a ~5% performance improvement for the tradeoff of no guarantee of the 2nd call being cached in at least the same event loop tick.
   // async getValueOrRetrieveFast<T>(
   //   key: string,
@@ -441,7 +498,13 @@ export class CacheClient {
   // }
 
   [Symbol.dispose] = () => {
-    console.log("Close connection");
+    this.close();
+  };
+
+  /**
+   * Disconnect from the Redis server
+   */
+  close = () => {
     this.client.close();
   };
 

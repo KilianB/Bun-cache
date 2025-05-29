@@ -1,16 +1,44 @@
 {
   "name": "bun-cache",
-  "module": "index.ts",
+  "version": "1.0.0",
+  "description": "Extended ",
+  "keywords": [
+    "bun",
+    "redis",
+    "valkey",
+    "cache"
+  ],
+  "homepage": "https://github.com/KilianB/Bun-cache#readme",
+  "bugs": {
+    "url": "https://github.com/KilianB/Bun-cache/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KilianB/Bun-cache.git"
+  },
+  "author": "Kilian Brachtendorf <kilian.brachtendorf@t-online.de>",
   "type": "module",
+  "main": "index.ts",
+  "module": "index.ts",
+  "files": [
+    "index.ts",
+    "package.json",
+    "README.md",
+    "tsconfig.json",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "ensure-config": "^1.0.2"
+  },
   "devDependencies": {
-    "@types/bun": "latest",
     "@biomejs/biome": "1.9.4",
+    "@types/bun": "latest",
     "mitata": "1.0.34"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.8.3"
   },
-  "dependencies": {
-    "ensure-config": "^1.0.2"
+  "engines": {
+    "bun": ">=1.2.9"
   }
 }

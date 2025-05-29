@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { CacheClient } from "..";
 
 describe("getValueOrRetrieve", async () => {
@@ -8,6 +8,10 @@ describe("getValueOrRetrieve", async () => {
     cacheClient = await CacheClient.create({
       url: "redis://localhost:6379",
     });
+  });
+
+  afterAll(async () => {
+    cacheClient.close();
   });
 
   test("Boolean Returned", async () => {
