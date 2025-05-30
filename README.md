@@ -15,13 +15,13 @@ A cache wrapper around the [Bun Redis Client](https://bun.sh/docs/api/redis), pr
 ## Installation
 
 ```sh
-bun add bun-cache
+bun add bun-redis-cache
 ```
 
 ## Quick Start
 
 ```typescript
-import { CacheClient } from "bun-cache";
+import { CacheClient } from "bun-redis-cache";
 
 const client = await CacheClient.create();
 

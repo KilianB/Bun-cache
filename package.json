@@ -1,7 +1,7 @@
 {
-  "name": "bun-cache",
+  "name": "bun-redis-cache",
   "version": "1.0.0",
-  "description": "Extended ",
+  "description": "Convenient extension of the Bun Redis Cache client",
   "keywords": [
     "bun",
     "redis",
