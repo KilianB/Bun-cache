@@ -122,6 +122,36 @@ describe("getValueOrRetrieve", async () => {
     expect(count).toBe(1);
   });
 
+  test("Bypass", async () => {
+    const key = "bypass";
+
+    await cacheClient.del(key);
+
+    let count = 0;
+
+    const res = await cacheClient.getValueOrRetrieve(key, async () => {
+      count++;
+      return 20;
+    });
+
+    expect(res).toBe(20);
+    expect(count).toBe(1);
+
+    const res1 = await cacheClient.getValueOrRetrieve(
+      key,
+      async () => {
+        count++;
+        return 10;
+      },
+      {
+        bypassCache: true,
+      }
+    );
+
+    expect(res1).toBe(10);
+    expect(count).toBe(2);
+  });
+
   test("Object Returned", async () => {
     const key = "testObject";
 

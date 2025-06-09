@@ -191,6 +191,11 @@ export interface CacheOption {
    * Defaults to true
    */
   saveNullResponse?: boolean;
+
+  /**
+   * If set always request a fresh copy of the data and save it in the cache.
+   */
+  bypassCache?: boolean;
 }
 
 // interface GetValueFromCache {
@@ -383,26 +388,29 @@ export class CacheClient {
   ): Promise<T | null> {
     const computedKey = this.computeCacheKey(key);
 
-    const value = await this.client.get(computedKey);
     const expirationTime = this.cacheTimeInMS(options?.duration) / SECONDS;
 
-    if (
-      value &&
-      (value !== NULL_SYMBOL || options?.saveNullResponse !== false)
-    ) {
-      //Renew expiration time
-      if (options?.renewCacheDurationOnAccess) {
-        await this.client.expire(computedKey, expirationTime).catch((e) => {
-          console.warn(`Could not renew cache duration of key ${key} ${e}`);
-        });
-      }
+    if (options?.bypassCache !== true) {
+      const value = await this.client.get(computedKey);
 
-      if (value === NULL_SYMBOL) {
-        return null;
-      }
+      if (
+        value &&
+        (value !== NULL_SYMBOL || options?.saveNullResponse !== false)
+      ) {
+        //Renew expiration time
+        if (options?.renewCacheDurationOnAccess) {
+          await this.client.expire(computedKey, expirationTime).catch((e) => {
+            console.warn(`Could not renew cache duration of key ${key} ${e}`);
+          });
+        }
 
-      //These are all wrapping
-      return JSON.parse(value) as T;
+        if (value === NULL_SYMBOL) {
+          return null;
+        }
+
+        //These are all wrapping
+        return JSON.parse(value) as T;
+      }
     }
 
     //Value needs to be retrieved;
